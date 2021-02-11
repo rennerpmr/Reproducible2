@@ -1,0 +1,131 @@
+---
+title: "Health and Economic Effects of Weather"
+author: "Phil Renner"
+date: "2/5/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE, cache=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(knitr)
+library(ggplot2)
+
+
+```
+
+## Synopsis:
+Weather in the United States can cause injuries, fatalities, property damage, and crop damage. We analysed US weather data collected between 1950 and 2011, and identified the types of weather events that caused the most injuries, fatalities, and economic damage. We found that tornadoes caused the most injuries and fatalities during this period, while flooding caused the most economic damage.
+
+## Data Processing
+1. Read Storm Data
+2. Create Subsets of the data to speed processing. One subset is for events with injuries and fatalities, and the second subset is for events with property and crop damage.
+3. The damage numbers are stored as a base number and an exponent. Expand these numbers into numbers that can be analyzed.
+
+```{r read data and clean }
+
+
+# get the source file, download as weather.zip
+setwd("C:/Users/s125863/Desktop/coursera/Reproducible2")
+if (!file.exists("stormdata.csv.bz2")){
+     fileURL <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+    download.file(fileURL, "stormdata.csv.bz2", method="curl")
+}
+
+
+
+#read into data frame storm, with subset of variables that will be needed
+storm <- read.csv("stormdata.csv.bz2") [,c(1:4, 7:8, 12:13, 23:28)]
+
+#create a subset INJ which contains only events with injuries or fatalities
+fatality <- storm[which(storm$FATALITIES>0),]
+INJ <- storm[which(storm$INJURIES>0),]
+INJ <- rbind(INJ, fatality)
+INJ$INJURIES <- as.numeric(INJ$INJURIES)
+INJ$FATALITIES <- as.numeric(INJ$FATALITIES)
+
+#create a subset DMG which only contains events with either crop or property damage > 0
+DMG <- storm[which(storm$PROPDMG>0),]
+crop <- storm[which(storm$CROPDMG>0),]
+DMG <- rbind(DMG, crop)
+
+
+#damages are stored as number plus multiplier (thousand, million, billion)
+#multiply the base number times the exponent to get damage numbers for analysis
+expo <- c("K", "M", "", "B", "m", "+", "0", "5", "6", "?", "4", "2", "3", "h", "7", "H", "-", "1", "8")
+multiplier <- c(1000, 1e+06, 1, 1e+09, 1e+06, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA, NA)
+exponent <- data.frame(expo, multiplier)
+DMG$PROP <- as.numeric(DMG$PROPDMG)*exponent[match(DMG$PROPDMGEXP, exponent$expo),2]
+
+```
+
+## Results
+
+Question 1: Across the United States, which types of events are most harmful with respect to population health?
+Answer: Tornadoes are the events which have both the greatest number of injuries and fatalties during the time period studied.
+
+```{r }
+
+#summarize the total number of injuries and fatalities by event type
+eventinj <-   INJ %>%
+     group_by(EVTYPE) %>%
+     summarise(injuries=sum(INJURIES), fatalities = sum(FATALITIES))
+
+#find the 95th percentile of injuries and fatalities
+quantile(eventinj$injuries, na.rm = TRUE, c(.8, .9, .95))
+quantile(eventinj$fatalities, na.rm = TRUE, c(.8, .9, .95))
+
+#create a data frame with the subset of the top 5% of events (one for injuries, one for fatalities)
+inj95 <- eventinj[which(eventinj$injuries >= 1527),]
+inj95 <- inj95[order(inj95$injuries, decreasing = TRUE),]
+fat95 <- eventinj[which(eventinj$fatalities >= 238),]
+fat95 <- fat95[order(fat95$fatalities, decreasing = TRUE),]
+
+#plot injuries and fatalities in descending order
+g<- ggplot(data = inj95, aes(x=reorder(EVTYPE, -injuries), y=injuries))
+g+geom_col()+theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) +
+  labs(title = "Total Injuries per Event") +
+  xlab("Event Type") +scale_y_continuous(labels=scales::comma, name = "Injuries")
+
+g<- ggplot(data = fat95, aes(x=reorder(EVTYPE, -fatalities), y=fatalities))
+g+geom_col()+theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) +
+  labs(title = "Total Fatalities per Event") +
+  xlab("Event Type") +scale_y_continuous(labels=scales::comma, name = "Fatalities")
+
+
+
+```
+
+
+
+
+Question 2: Across the United States, which types of events have the greatest economic consequences?
+Answer: Floods are the events which have the greatest economic consequences, followed by hurricanes.
+
+```{r calculate property and crop damage}
+
+#summarize the total value of property and crop damage by event type
+eventdamage <-   DMG %>%
+  group_by(EVTYPE) %>%
+summarise(sum=sum(PROP))
+
+
+#find the 95th percentile of damages
+quantile(eventdamage$sum, na.rm = TRUE, c(.75, .85, .9, .95))
+
+#create a data frame with the subset of the most expensive types of events
+event95 <- eventdamage[which(eventdamage$sum >= 352413522),]
+event95 <- event95[order(event95$sum, decreasing = TRUE),]
+event95$damb <- event95$sum/1e09
+
+g<- ggplot(data = event95, aes(x=reorder(EVTYPE, -sum), y=damb))
+g+geom_col()+theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5)) +
+  labs(title = "Total Property and Crop Damage per Event") +xlab("Event Type")  +
+  scale_y_continuous(name = "Damages($US Billion)", breaks = c(50, 100, 150, 200, 250, 300), labels =  c(50, 100, 150, 200, 250, 300))
+
+
+
+#published to https://rpubs.com/PhilRenner/724382
+```
+
